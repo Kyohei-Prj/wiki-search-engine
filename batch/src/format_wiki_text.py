@@ -7,11 +7,26 @@ import pandas as pd
 def main():
 
     doc_list = [doc for doc in glob('../data/text/*/wiki_*')]
-    with ProcessPoolExecutor(max_workers=4) as exe:
+
+    doc_size = len(doc_list)
+    split_size = 8
+    chunk_size = int(doc_size / split_size)
+
+    for i in range(split_size):
+        if i == (split_size-1):
+            run_extractor(doc_list[i*chunk_size:], i)
+        else:
+            run_extractor(doc_list[i*chunk_size: chunk_size*(i+1)], i)
+
+
+def run_extractor(doc_list, chunk):
+
+    with ProcessPoolExecutor(max_workers=15) as exe:
         result = exe.map(extract_title_abstract, doc_list)
 
     wiki_df = pd.concat(result)
-    wiki_df.to_csv('../data/wiki_abstract.csv', index=False)
+    save_path = '../data/wiki_abstract_' + str(chunk) + '.csv'
+    wiki_df.to_csv(save_path, index=False)
 
 
 def extract_title_abstract(path):

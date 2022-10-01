@@ -1,7 +1,10 @@
+from glob import glob
+
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 
 class ElasticLoader:
@@ -10,12 +13,15 @@ class ElasticLoader:
 
         self.es = Elasticsearch(hosts=url,
                                 basic_auth=auth,
-                                verify_certs=False)
+                                verify_certs=False,
+                                timeout=120,
+                                max_retries=5)
 
     def create_index(self, index):
 
         index_config = {
             'settings': {
+                'number_of_shards': 3,
                 'index': {
                     'similarity': {
                         'default': {
@@ -38,10 +44,6 @@ class ElasticLoader:
                 }
             },
             'mapping': {
-                'dynamic': 'true',
-                '_source': {
-                    'enabled': 'true'
-                },
                 'properties': {
                     'title': {
                         'type': 'text'
@@ -66,7 +68,7 @@ class ElasticLoader:
             'title': title,
             'abstract': abstract,
             'vector': vector,
-            '_index': self.index
+            '_index': 'wiki_index'
         } for title, abstract, vector in zip(title_list,
                                              abstract_list,
                                              vector_list)]
@@ -81,14 +83,26 @@ def main():
     el = ElasticLoader(url, auth)
 
     print('create_index')
-    el.create_index('sample_index')
+    # el.create_index('sample_wiki')
+
+    print('load data')
+    doc_list = [doc for doc in glob('../data/wiki_abstract_*')]
+    doc_list.sort()
+    embed_list = [embed for embed in glob('../data/embeddings_*.csv.npy')]
+    embed_list.sort()
 
     print('load to es')
-    wiki_df = pd.read_csv('../data/wiki_abstract.csv', nrows=1000)
-    title_list = wiki_df['title'].tolist()
-    abstract_list = wiki_df['abstract'].tolist()
-    vector_list = list(np.load('../data/embeddings.npy'))
-    el.load_to_elastic(title_list, abstract_list, vector_list)
+    for doc, embed in tqdm(zip(doc_list, embed_list)):
+        wiki_df = pd.read_csv(doc)
+        title_list = wiki_df['title'].tolist()
+        abstract_list = wiki_df['abstract'].tolist()
+        vector_list = list(np.load(embed))
+        try:
+            el.load_to_elastic(title_list, abstract_list, vector_list)
+        except Exception as e:
+            print(e)
+
+    el.es.close()
 
 
 if __name__ == '__main__':
